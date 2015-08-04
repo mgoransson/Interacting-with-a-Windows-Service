@@ -14,6 +14,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
+using SimpleWindowsApp.SimpleWindowsService;
 
 namespace SimpleWindowsApp
 {
@@ -25,25 +26,44 @@ namespace SimpleWindowsApp
         public const string ServiceName = "SimpleWindowsService";
         public ServiceController ServiceController { get; set; }
         public ManagementEventWatcher EventWatcher { get; set; }
-
+        public SettingsServiceClient WindowsServiceReference { get; set; }
 
         public MainWindow()
         {
             InitializeComponent();
 
-            EventQuery eventQuery = new EventQuery();
-            eventQuery.QueryString = string.Format("SELECT * FROM __InstanceModificationEvent within 2 WHERE targetinstance isa 'Win32_Service' and targetinstance.name = '{0}'", ServiceName);
-            EventWatcher = new ManagementEventWatcher(eventQuery);
-            EventWatcher.Options.Timeout = new TimeSpan(1, 0, 0);
-            EventWatcher.EventArrived += new EventArrivedEventHandler(eventWatcher_EventArrived);
-            EventWatcher.Start();
+            try
+            {
+                EventQuery eventQuery = new EventQuery();
+                eventQuery.QueryString = string.Format("SELECT * FROM __InstanceModificationEvent within 2 WHERE targetinstance isa 'Win32_Service' and targetinstance.name = '{0}'", ServiceName);
+                EventWatcher = new ManagementEventWatcher(eventQuery);
+                EventWatcher.Options.Timeout = new TimeSpan(1, 0, 0);
+                EventWatcher.EventArrived += new EventArrivedEventHandler(eventWatcher_EventArrived);
+                EventWatcher.Start();
 
-            ServiceController = new ServiceController();
-            ServiceController.ServiceName = ServiceName;
+                ServiceController = new ServiceController();
+                ServiceController.ServiceName = ServiceName;
 
-            lblServiceStatus.Content = ServiceController.Status.ToString();
+                lblServiceStatus.Content = ServiceController.Status.ToString();
 
-            changeBtnState();
+                if (ServiceController.Status == ServiceControllerStatus.Running)
+                {
+                    WindowsServiceReference = new SettingsServiceClient();
+                    lblCurrentOutputMessage.Content = WindowsServiceReference.GetOutputMessage();
+                }
+
+                changeBtnState();
+            }
+            catch (Exception ex)
+            {
+                lblError.Content = ex.Message;
+
+                btnStartService.IsEnabled = false;
+                btnStopService.IsEnabled = false;
+                btnRestartService.IsEnabled = false;
+                txtNewOutputMessage.IsEnabled = false;
+                btnChangeOutputMessage.IsEnabled = false;
+            }
         }
 
         void eventWatcher_EventArrived(object sender, EventArrivedEventArgs e)
@@ -57,6 +77,21 @@ namespace SimpleWindowsApp
                 btnStartService.IsEnabled = state.Value.ToString() == ServiceControllerStatus.Stopped.ToString();
                 btnStopService.IsEnabled = state.Value.ToString() == ServiceControllerStatus.Running.ToString();
                 btnRestartService.IsEnabled = state.Value.ToString() == ServiceControllerStatus.Running.ToString();
+                txtNewOutputMessage.IsEnabled = state.Value.ToString() == ServiceControllerStatus.Running.ToString();
+                btnChangeOutputMessage.IsEnabled = state.Value.ToString() == ServiceControllerStatus.Running.ToString();
+
+                if (state.Value.ToString() == ServiceControllerStatus.Running.ToString())
+                {
+                    WindowsServiceReference = new SettingsServiceClient();
+                    lblCurrentOutputMessage.Content = WindowsServiceReference.GetOutputMessage();
+
+                    ServiceController = new ServiceController();
+                    ServiceController.ServiceName = ServiceName;
+                }
+                else
+                {
+                    lblCurrentOutputMessage.Content = string.Empty;
+                }
             }));
         }
 
@@ -68,9 +103,6 @@ namespace SimpleWindowsApp
                 btnStartService.IsEnabled = false;
 
                 ServiceController.Start();
-
-                TimeSpan t = new TimeSpan(0, 0, 0, 20);
-                ServiceController.WaitForStatus(ServiceControllerStatus.Running, t);
             }
             catch (Exception ex)
             {
@@ -88,9 +120,6 @@ namespace SimpleWindowsApp
                 btnStopService.IsEnabled = false;
 
                 ServiceController.Stop();
-
-                TimeSpan t = new TimeSpan(0, 0, 0, 20);
-                ServiceController.WaitForStatus(ServiceControllerStatus.Stopped, t);
             }
             catch (Exception ex)
             {
@@ -126,6 +155,15 @@ namespace SimpleWindowsApp
             btnStartService.IsEnabled = ServiceController.Status == ServiceControllerStatus.Stopped;
             btnStopService.IsEnabled = ServiceController.Status == ServiceControllerStatus.Running;
             btnRestartService.IsEnabled = ServiceController.Status == ServiceControllerStatus.Running;
+        }
+
+        private void btnChangeOutputMessage_Click(object sender, RoutedEventArgs e)
+        {
+            if (ServiceController.Status == ServiceControllerStatus.Running)
+            {
+                WindowsServiceReference.SetOutputMessage(txtNewOutputMessage.Text);
+                lblCurrentOutputMessage.Content = WindowsServiceReference.GetOutputMessage();
+            }
         }
 
         private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
